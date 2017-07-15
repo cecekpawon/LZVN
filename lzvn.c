@@ -26,6 +26,16 @@
 
 //==============================================================================
 
+void help()
+{
+	printf("Usage (encode): lzvn <infile> <outfile>\n");
+	printf("Usage (decode): lzvn -d <infile> <outfile>\n");
+	printf("Usage (decode): lzvn -d <path/prelinkedkernel> kernel\n");
+	printf("Usage (decode): lzvn -d <path/prelinkedkernel> dictionary\n");
+	printf("Usage (decode): lzvn -d <path/prelinkedkernel> kexts\n");
+	printf("Usage (decode): lzvn -d <path/prelinkedkernel> list\n");
+}
+
 int main(int argc, const char * argv[])
 {
 	FILE *fp								= NULL;
@@ -51,12 +61,7 @@ int main(int argc, const char * argv[])
 
 	if (argc < 3 || argc > 4)
 	{
-		printf("Usage (encode): lzvn <infile> <outfile>\n");
-		printf("Usage (decode): lzvn -d <infile> <outfile>\n");
-		printf("Usage (decode): lzvn -d <path/prelinkedkernel> kernel\n");
-		printf("Usage (decode): lzvn -d <path/prelinkedkernel> dictionary\n");
-		printf("Usage (decode): lzvn -d <path/prelinkedkernel> kexts\n");
-		printf("Usage (decode): lzvn -d <path/prelinkedkernel> list\n");
+		help();
 		exit(-1);
 	}
 	else
@@ -64,13 +69,17 @@ int main(int argc, const char * argv[])
 		// Do we need to decode a file?
 		if (!strncmp(argv[1], "-d", 2))
 		{
+			if (argc != 4) {
+				help();
+				exit(-1);
+			}
 			// Yes. Try to open the file.
 			fp = fopen(argv[2], "rb");
 
 			// Check file pointer.
 			if (fp == NULL)
 			{
-				printf("Error: Opening of %s failed... exiting\nDone.\n", argv[1]);
+				printf("ERROR: Opening of %s failed... exiting\nDone.\n", argv[1]);
 				exit(-1);
 			}
 			else
@@ -112,12 +121,9 @@ int main(int argc, const char * argv[])
 						}
 
 						// Is this a LZVN compressed file?
-						if (prelinkHeader->compressType == OSSwapInt32('lzvn'))
+						if ((prelinkHeader->compressType == OSSwapInt32('lzvn')) || (prelinkHeader->compressType == OSSwapInt32('lzss')))
 						{
 							printf("Prelinkedkernel found!\n");
-							fileBuffer = (unsigned char *)prelinkHeader + sizeof(PrelinkedKernelHeader);
-							workSpaceSize = OSSwapInt32(prelinkHeader->uncompressedSize);
-							fileLength = OSSwapInt32(prelinkHeader->compressedSize);
 						}
 						else
 						{
@@ -128,19 +134,31 @@ int main(int argc, const char * argv[])
 					else
 					{
 						prelinkHeader = (PrelinkedKernelHeader *)(unsigned char *)fileBuffer;
-						
-						if (prelinkHeader->signature == OSSwapInt32('comp') && prelinkHeader->compressType == OSSwapInt32('lzvn'))
-						{
-							fileBuffer = (unsigned char *)prelinkHeader + sizeof(PrelinkedKernelHeader);
-							workSpaceSize = OSSwapInt32(prelinkHeader->uncompressedSize);
-							fileLength = OSSwapInt32(prelinkHeader->compressedSize);
-						}
-						else
-						{
-							// printf("Getting WorkSpaceSize\n");
-							workSpaceSize = lzvn_encode_work_size();
-						}
 					}
+
+					if (prelinkHeader->signature != OSSwapInt32('comp')) {
+						if (fileBuffer)
+						{
+							free(fileBuffer);
+						}
+						printf("ERROR: Unsupported compression format detected!\n");
+						exit(-1);
+					}
+
+					if (
+						(prelinkHeader->compressType == OSSwapInt32('lzvn')) ||
+						(prelinkHeader->compressType == OSSwapInt32('lzss'))
+					) {
+						workSpaceSize = OSSwapInt32(prelinkHeader->uncompressedSize);
+					}
+					else
+					{
+						// printf("Getting WorkSpaceSize\n");
+						workSpaceSize = lzvn_encode_work_size();
+					}
+
+					fileBuffer = (unsigned char *)prelinkHeader + sizeof(PrelinkedKernelHeader);
+					fileLength = OSSwapInt32(prelinkHeader->compressedSize);
 
 					// printf("workSpaceSize: %ld \n", workSpaceSize);
 					workSpaceBuffer = malloc(workSpaceSize);
@@ -154,7 +172,14 @@ int main(int argc, const char * argv[])
 					{
 						/* if (workSpaceSize > 0x80000)
 						{ */
-							compressedSize = lzvn_decode(workSpaceBuffer, workSpaceSize, fileBuffer, fileLength);
+							if (prelinkHeader->compressType == OSSwapInt32('lzss'))
+							{
+								compressedSize = decompress_lzss((uint8_t *)workSpaceBuffer, workSpaceSize, (uint8_t *)fileBuffer, fileLength);
+							}
+							else
+							{
+								compressedSize = lzvn_decode(workSpaceBuffer, workSpaceSize, fileBuffer, fileLength);
+							}
 
 							if (compressedSize > 0)
 							{
@@ -247,7 +272,7 @@ int main(int argc, const char * argv[])
 
 			if (fp == NULL)
 			{
-				printf("Error: Opening of %s failed... exiting\nDone.\n", argv[1]);
+				printf("ERROR: Opening of %s failed... exiting\nDone.\n", argv[1]);
 				exit(-1);
 			}
 			else
