@@ -324,10 +324,13 @@ saveKernel (
     return -1;
   }
 
+  uint32_t  delta = 0;
+
   if ((textExecSegment = find_segment_64 (machHeader, "__TEXT_EXEC")) != NULL)
   {
-    machHeader = (struct mach_header_64 *)((unsigned char *)(aFileBuffer + textExecSegment->fileoff));
+    delta = textExecSegment->fileoff;
 
+    machHeader = (struct mach_header_64 *)((unsigned char *)aFileBuffer + delta);
     if (machHeader->magic != MH_MAGIC_64) {
       printf ("ERROR: Invalid MachO header\n");
       return -1;
@@ -381,7 +384,7 @@ saveKernel (
   prelinkInfoSection->offset    = prelinkInfoSegment->fileoff;
 
   FILE *fp = fopen ("kernel", "wb");
-  fwrite (aFileBuffer, 1, (long)(linkeditSegment->fileoff + linkeditSegment->filesize), fp);
+  fwrite (aFileBuffer + delta, 1, (long)(linkeditSegment->fileoff + linkeditSegment->filesize), fp);
   printf ("%ld bytes written\n", ftell (fp));
   fclose (fp);
 
